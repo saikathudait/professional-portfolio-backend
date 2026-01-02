@@ -4,6 +4,52 @@ import fs from 'fs';
 import path from 'path';
 import { resolveUploadsPath } from '../config/uploads.js';
 
+const getRequestBaseUrl = (req) => {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const protocol = Array.isArray(forwardedProto)
+    ? forwardedProto[0]
+    : forwardedProto || req.protocol;
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const host = Array.isArray(forwardedHost)
+    ? forwardedHost[0]
+    : forwardedHost || req.get('host');
+  return `${protocol}://${host}`;
+};
+
+const normalizeCvLink = (req, cvLink) => {
+  if (!cvLink) return '';
+
+  const baseUrl = getRequestBaseUrl(req);
+
+  if (cvLink.startsWith('/uploads/')) {
+    return `${baseUrl}${cvLink}`;
+  }
+
+  if (cvLink.startsWith('uploads/')) {
+    return `${baseUrl}/${cvLink}`;
+  }
+
+  try {
+    const parsedUrl = new URL(cvLink);
+    if (!parsedUrl.pathname.startsWith('/uploads/')) {
+      return cvLink;
+    }
+
+    const currentHost = new URL(baseUrl).host;
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(
+      parsedUrl.hostname
+    );
+
+    if (isLocalHost || parsedUrl.host === currentHost) {
+      return `${baseUrl}${parsedUrl.pathname}`;
+    }
+  } catch (error) {
+    return cvLink;
+  }
+
+  return cvLink;
+};
+
 // @desc    Get home data
 // @route   GET /api/home
 // @access  Public
@@ -22,6 +68,7 @@ export const getHome = async (req, res) => {
     }
 
     const responseData = home.toObject();
+    responseData.cvLink = normalizeCvLink(req, responseData.cvLink);
 
     const includeOwnerImage = req.query.includeOwnerImage === 'true';
 
@@ -134,15 +181,15 @@ export const uploadResume = async (req, res) => {
       });
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const resumeUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    const resumePath = `/uploads/${req.file.filename}`;
+    const resumeUrl = normalizeCvLink(req, resumePath);
 
     let home = await Home.findOne();
     if (!home) {
-      home = await Home.create({ cvLink: resumeUrl });
+      home = await Home.create({ cvLink: resumePath });
     } else {
       removeLocalResume(home.cvLink);
-      home.cvLink = resumeUrl;
+      home.cvLink = resumePath;
       await home.save();
     }
 
