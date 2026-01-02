@@ -1,10 +1,14 @@
 import multer from 'multer';
 import path from 'path';
+import { uploadsDir, ensureUploadsDir } from '../config/uploads.js';
 
 // Configure storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+    if (!ensureUploadsDir()) {
+      return cb(new Error('Uploads directory is not available'));
+    }
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);

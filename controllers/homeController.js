@@ -2,6 +2,7 @@ import Home from '../models/Home.js';
 import User from '../models/User.js';
 import fs from 'fs';
 import path from 'path';
+import { resolveUploadsPath } from '../config/uploads.js';
 
 // @desc    Get home data
 // @route   GET /api/home
@@ -99,16 +100,14 @@ const removeLocalResume = (resumeLink) => {
   try {
     const parsed = new URL(resumeLink);
     const filePath = parsed.pathname.replace(/^[\\/]+/, '');
-    if (!filePath.startsWith('uploads/')) return;
-    const absolutePath = path.join(process.cwd(), filePath);
-    if (fs.existsSync(absolutePath)) {
+    const absolutePath = resolveUploadsPath(filePath);
+    if (absolutePath && fs.existsSync(absolutePath)) {
       fs.unlinkSync(absolutePath);
     }
   } catch (error) {
     const filePath = resumeLink.replace(/^[\\/]+/, '');
-    if (!filePath.startsWith('uploads/')) return;
-    const absolutePath = path.join(process.cwd(), filePath);
-    if (fs.existsSync(absolutePath)) {
+    const absolutePath = resolveUploadsPath(filePath);
+    if (absolutePath && fs.existsSync(absolutePath)) {
       fs.unlinkSync(absolutePath);
     }
   }

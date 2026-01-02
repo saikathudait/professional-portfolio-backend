@@ -5,10 +5,8 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import connectDatabase from './config/database.js';
+import { uploadsDir, ensureUploadsDir } from './config/uploads.js';
 import errorHandler from './middleware/errorHandler.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
 
 // Import routes
 import authRoutes from './routes/authRoutes.js';
@@ -27,10 +25,6 @@ import analyticsRoutes from './routes/analyticsRoutes.js';
 // Load env vars
 dotenv.config();
 
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Connect to database
 connectDatabase();
 
@@ -38,10 +32,7 @@ connectDatabase();
 const app = express();
 
 // Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+ensureUploadsDir();
 
 // Security middleware
 app.use(helmet());
@@ -78,7 +69,7 @@ app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
 // Routes
 app.use('/api/auth', authRoutes);
