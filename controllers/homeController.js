@@ -1,8 +1,14 @@
 import Home from '../models/Home.js';
 import User from '../models/User.js';
+import cloudinary from '../config/cloudinary.js';
 import fs from 'fs';
 import path from 'path';
 import { resolveUploadsPath } from '../config/uploads.js';
+
+const hasCloudinaryConfig =
+  Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
+  Boolean(process.env.CLOUDINARY_API_KEY) &&
+  Boolean(process.env.CLOUDINARY_API_SECRET);
 
 const getRequestBaseUrl = (req) => {
   const forwardedProto = req.headers['x-forwarded-proto'];
@@ -181,15 +187,31 @@ export const uploadResume = async (req, res) => {
       });
     }
 
-    const resumePath = `/uploads/${req.file.filename}`;
-    const resumeUrl = normalizeCvLink(req, resumePath);
+    let resumeUrl = '';
+    let storedResumeValue = '';
+
+    if (hasCloudinaryConfig) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'portfolio/resume',
+        resource_type: 'raw',
+        use_filename: true,
+        unique_filename: true,
+      });
+      resumeUrl = result.secure_url;
+      storedResumeValue = resumeUrl;
+      fs.unlinkSync(req.file.path);
+    } else {
+      const resumePath = `/uploads/${req.file.filename}`;
+      resumeUrl = normalizeCvLink(req, resumePath);
+      storedResumeValue = resumePath;
+    }
 
     let home = await Home.findOne();
     if (!home) {
-      home = await Home.create({ cvLink: resumePath });
+      home = await Home.create({ cvLink: storedResumeValue });
     } else {
       removeLocalResume(home.cvLink);
-      home.cvLink = resumePath;
+      home.cvLink = storedResumeValue;
       await home.save();
     }
 
