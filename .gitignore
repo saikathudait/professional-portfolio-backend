@@ -1,0 +1,32 @@
+```
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+```
+
+### 6.3 Create `backend/uploads/.gitkeep`
+```
+# This file ensures the uploads directory is tracked by git
