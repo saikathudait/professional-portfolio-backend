@@ -20,6 +20,7 @@ import bookRoutes from './routes/bookRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import coverLetterRoutes from './routes/coverLetterRoutes.js';
 
 dotenv.config();
 
@@ -101,6 +102,7 @@ app.use('/api/books', bookRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/cover-letter', coverLetterRoutes);
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -128,6 +130,7 @@ app.get('/', (req, res) => {
       contact: '/api/contact',
       upload: '/api/upload',
       analytics: '/api/analytics',
+      coverLetter: '/api/cover-letter',
     },
   });
 });
