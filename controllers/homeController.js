@@ -15,6 +15,8 @@ const hasCloudinaryConfig =
   Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
   Boolean(process.env.CLOUDINARY_API_KEY) &&
   Boolean(process.env.CLOUDINARY_API_SECRET);
+const shouldUseCloudinaryForResume =
+  process.env.RESUME_STORAGE === 'cloudinary' && hasCloudinaryConfig;
 
 const getRequestBaseUrl = (req) => {
   const forwardedProto = req.headers['x-forwarded-proto'];
@@ -168,6 +170,14 @@ const removeLocalResume = (resumeLink) => {
   }
 };
 
+const storeResumeLocally = (req) => {
+  const resumePath = `/uploads/${req.file.filename}`;
+  return {
+    resumeUrl: normalizeCvLink(req, resumePath),
+    storedResumeValue: resumePath,
+  };
+};
+
 // @desc    Upload resume (PDF)
 // @route   POST /api/home/cv
 // @access  Private/Admin
@@ -189,23 +199,30 @@ export const uploadResume = async (req, res) => {
       });
     }
 
-    let resumeUrl = '';
-    let storedResumeValue = '';
+    let resumeUrl;
+    let storedResumeValue;
 
-    if (hasCloudinaryConfig) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'portfolio/resume',
-        resource_type: 'raw',
-        use_filename: true,
-        unique_filename: true,
-      });
-      resumeUrl = result.secure_url;
-      storedResumeValue = resumeUrl;
-      removeFileIfExists(req.file.path);
+    if (shouldUseCloudinaryForResume) {
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'portfolio/resume',
+          resource_type: 'raw',
+          use_filename: true,
+          unique_filename: true,
+        });
+        resumeUrl = result.secure_url;
+        storedResumeValue = resumeUrl;
+        removeFileIfExists(req.file.path);
+      } catch (error) {
+        const stored = storeResumeLocally(req);
+        resumeUrl = stored.resumeUrl;
+        storedResumeValue = stored.storedResumeValue;
+        console.warn(`Cloudinary resume upload failed, saved locally: ${error.message}`);
+      }
     } else {
-      const resumePath = `/uploads/${req.file.filename}`;
-      resumeUrl = normalizeCvLink(req, resumePath);
-      storedResumeValue = resumePath;
+      const stored = storeResumeLocally(req);
+      resumeUrl = stored.resumeUrl;
+      storedResumeValue = stored.storedResumeValue;
     }
 
     let home = await Home.findOne();
