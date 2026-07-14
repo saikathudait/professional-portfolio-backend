@@ -50,9 +50,14 @@ const homeSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    cvFileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ResumeFile',
+      default: null,
+    },
     cvStorage: {
       type: String,
-      enum: ['local', 'cloudinary', 'external', ''],
+      enum: ['local', 'cloudinary', 'mongodb', 'external', ''],
       default: '',
     },
     ctaText: {
