@@ -1,6 +1,12 @@
 import cloudinary from '../config/cloudinary.js';
 import fs from 'fs';
 
+const removeFileIfExists = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+};
+
 // @desc    Upload image to Cloudinary
 // @route   POST /api/upload
 // @access  Private/Admin
@@ -20,8 +26,7 @@ export const uploadImage = async (req, res) => {
       unique_filename: true,
     });
 
-    // Delete local file
-    fs.unlinkSync(req.file.path);
+    removeFileIfExists(req.file.path);
 
     res.status(200).json({
       success: true,
@@ -30,10 +35,7 @@ export const uploadImage = async (req, res) => {
       publicId: result.public_id,
     });
   } catch (error) {
-    // Delete local file if upload fails
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
+    removeFileIfExists(req.file?.path);
 
     res.status(500).json({
       success: false,
@@ -61,8 +63,7 @@ export const uploadMultipleImages = async (req, res) => {
         unique_filename: true,
       });
 
-      // Delete local file
-      fs.unlinkSync(file.path);
+      removeFileIfExists(file.path);
 
       return {
         url: result.secure_url,
@@ -78,10 +79,9 @@ export const uploadMultipleImages = async (req, res) => {
       data: uploadedFiles,
     });
   } catch (error) {
-    // Delete local files if upload fails
     if (req.files) {
       req.files.forEach((file) => {
-        fs.unlinkSync(file.path);
+        removeFileIfExists(file.path);
       });
     }
 
@@ -97,7 +97,7 @@ export const uploadMultipleImages = async (req, res) => {
 // @access  Private/Admin
 export const deleteImage = async (req, res) => {
   try {
-    const { publicId } = req.params;
+    const publicId = decodeURIComponent(req.params.publicId || '');
 
     await cloudinary.uploader.destroy(publicId);
 

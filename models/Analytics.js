@@ -10,6 +10,11 @@ const analyticsSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    visitorIds: [
+      {
+        type: String,
+      },
+    ],
     date: {
       type: Date,
       default: Date.now,

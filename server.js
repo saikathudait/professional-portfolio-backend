@@ -8,7 +8,6 @@ import connectDatabase from './config/database.js';
 import { uploadsDir, ensureUploadsDir } from './config/uploads.js';
 import errorHandler from './middleware/errorHandler.js';
 
-// Import routes
 import authRoutes from './routes/authRoutes.js';
 import homeRoutes from './routes/homeRoutes.js';
 import aboutRoutes from './routes/aboutRoutes.js';
@@ -22,40 +21,31 @@ import contactRoutes from './routes/contactRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 
-// Load env vars
 dotenv.config();
 
-// Connect to database
-connectDatabase();
-
-// Initialize express app
 const app = express();
+let server;
 
-// Create uploads directory if it doesn't exist
-ensureUploadsDir();
+app.set('trust proxy', 1);
 
-// Security middleware
 app.use(helmet());
 
-// Rate limiting
 const limiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 10 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
 });
 
 app.use('/api/', limiter);
-
-// Body parser middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Cookie parser middleware
 app.use(cookieParser());
 
-// CORS middleware
 const normalizeOrigin = (origin) =>
   origin ? origin.replace(/\/+$/, '') : origin;
+
 const allowedOrigins = (
   process.env.FRONTEND_URLS ||
   process.env.FRONTEND_URL ||
@@ -65,21 +55,27 @@ const allowedOrigins = (
   .map((origin) => normalizeOrigin(origin.trim()))
   .filter(Boolean);
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const normalized = normalizeOrigin(origin);
-    if (allowedOrigins.includes(normalized)) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: true,
-  optionsSuccessStatus: 200,
-};
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
 
-// Static files
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.includes(normalized)) {
+        return callback(null, true);
+      }
+
+      const error = new Error(`CORS blocked for origin: ${origin}`);
+      error.statusCode = 403;
+      return callback(error);
+    },
+    credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
+
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('Content-Security-Policy');
   res.removeHeader('X-Frame-Options');
@@ -89,7 +85,6 @@ app.use('/uploads', (req, res, next) => {
 });
 app.use('/uploads', express.static(uploadsDir));
 
-// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/about', aboutRoutes);
@@ -103,7 +98,6 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
-// Health check route
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
@@ -112,7 +106,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Root route
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
@@ -135,10 +128,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// Error handler middleware (must be last)
 app.use(errorHandler);
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -146,22 +137,56 @@ app.use((req, res) => {
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
-  console.log(`
-    ╔═══════════════════════════════════════════╗
-    ║   🚀 Server running in ${process.env.NODE_ENV} mode   ║
-    ║   📡 Port: ${PORT}                           ║
-    ║   🌐 URL: http://localhost:${PORT}          ║
-    ╚═══════════════════════════════════════════╝
-  `);
+const shutdown = (signal) => {
+  console.log(`${signal} received. Shutting down gracefully.`);
+
+  if (!server) {
+    process.exit(0);
+    return;
+  }
+
+  server.close(() => {
+    process.exit(0);
+  });
+};
+
+const startServer = async () => {
+  try {
+    await connectDatabase();
+    ensureUploadsDir();
+
+    server = app.listen(PORT, () => {
+      const mode = process.env.NODE_ENV || 'development';
+      console.log(`Server running in ${mode} mode on http://localhost:${PORT}`);
+    });
+
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Stop the existing process or change PORT in backend/.env.`);
+        process.exit(1);
+      }
+
+      console.error(`Server failed: ${error.message}`);
+      process.exit(1);
+    });
+  } catch (error) {
+    console.error(`Failed to start server: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+process.on('unhandledRejection', (error) => {
+  console.error(`Unhandled rejection: ${error.message}`);
+  if (server) {
+    server.close(() => process.exit(1));
+    return;
+  }
+  process.exit(1);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
-  console.log(`❌ Error: ${err.message}`);
-  // Close server & exit process
-  server.close(() => process.exit(1));
-});
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -1,16 +1,26 @@
 import mongoose from 'mongoose';
 
 const connectDatabase = async () => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+  const mongoUri = process.env.MONGODB_URI_DIRECT || process.env.MONGODB_URI;
 
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI or MONGODB_URI_DIRECT is not configured');
+  }
+
+  try {
+    const conn = await mongoose.connect(mongoUri);
+    console.log(`MongoDB connected: ${conn.connection.host}`);
+    return conn;
   } catch (error) {
-    console.error(`❌ MongoDB Connection Error: ${error.message}`);
-    process.exit(1);
+    if (
+      !process.env.MONGODB_URI_DIRECT &&
+      process.env.MONGODB_URI?.startsWith('mongodb+srv://') &&
+      /querySrv|ENOTFOUND|ECONNREFUSED/i.test(error.message)
+    ) {
+      error.message = `${error.message}. SRV DNS lookup failed. Set MONGODB_URI_DIRECT in backend/.env to a non-SRV Atlas seed-list URI.`;
+    }
+
+    throw error;
   }
 };
 

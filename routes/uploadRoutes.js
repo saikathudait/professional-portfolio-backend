@@ -17,6 +17,6 @@ router.post(
   upload.array('files', 10),
   uploadMultipleImages
 );
-router.delete('/:publicId', protect, admin, deleteImage);
+router.delete('/:publicId(*)', protect, admin, deleteImage);
 
 export default router;

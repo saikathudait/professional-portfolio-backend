@@ -1,22 +1,48 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-export const protect = async (req, res, next) => {
+const getTokenFromRequest = (req) => {
   let token;
 
-  // Check if token exists in headers
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith('Bearer')
   ) {
     token = req.headers.authorization.split(' ')[1];
   }
-  // Check if token exists in cookies
-  else if (req.cookies.token) {
+  else if (req.cookies?.token) {
     token = req.cookies.token;
   }
 
-  // Check if token exists
+  return token;
+};
+
+const attachUserFromToken = async (req, token) => {
+  if (!token) {
+    return null;
+  }
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const user = await User.findById(decoded.id).select('-password');
+  if (user) {
+    req.user = user;
+  }
+  return user;
+};
+
+export const optionalAuth = async (req, res, next) => {
+  try {
+    const token = getTokenFromRequest(req);
+    await attachUserFromToken(req, token);
+  } catch (error) {
+    req.user = null;
+  }
+  next();
+};
+
+export const protect = async (req, res, next) => {
+  const token = getTokenFromRequest(req);
+
   if (!token) {
     return res.status(401).json({
       success: false,
@@ -25,13 +51,9 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await attachUserFromToken(req, token);
 
-    // Get user from token
-    req.user = await User.findById(decoded.id).select('-password');
-
-    if (!req.user) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'User not found',

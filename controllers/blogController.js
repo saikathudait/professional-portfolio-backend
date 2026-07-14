@@ -10,22 +10,24 @@ const generateSlug = (title) => {
     .trim();
 };
 
+const isAdminRequest = (req) => req.user?.role === 'admin';
+
 // @desc    Get all blogs
 // @route   GET /api/blogs
 // @access  Public
 export const getBlogs = async (req, res) => {
   try {
     const { category, search, published } = req.query;
-    let query = {};
+    const query = {};
+    const canViewDrafts = isAdminRequest(req);
 
     if (category) {
       query.category = category;
     }
 
-    if (published !== undefined) {
+    if (canViewDrafts && published !== undefined) {
       query.published = published === 'true';
-    } else {
-      // By default, only show published posts for public
+    } else if (!canViewDrafts) {
       query.published = true;
     }
 
@@ -65,16 +67,17 @@ export const getBlogBySlug = async (req, res) => {
       'name email profileImage'
     );
 
-    if (!blog) {
+    if (!blog || (!blog.published && !isAdminRequest(req))) {
       return res.status(404).json({
         success: false,
         message: 'Blog not found',
       });
     }
 
-    // Increment views
-    blog.views += 1;
-    await blog.save();
+    if (blog.published) {
+      blog.views += 1;
+      await blog.save();
+    }
 
     res.status(200).json({
       success: true,
@@ -98,7 +101,7 @@ export const getBlogById = async (req, res) => {
       'name email profileImage'
     );
 
-    if (!blog) {
+    if (!blog || (!blog.published && !isAdminRequest(req))) {
       return res.status(404).json({
         success: false,
         message: 'Blog not found',
@@ -236,7 +239,10 @@ export const deleteBlog = async (req, res) => {
 // @access  Public
 export const getBlogCategories = async (req, res) => {
   try {
-    const categories = await Blog.distinct('category');
+    const categories = await Blog.distinct(
+      'category',
+      isAdminRequest(req) ? {} : { published: true }
+    );
 
     res.status(200).json({
       success: true,
@@ -255,7 +261,9 @@ export const getBlogCategories = async (req, res) => {
 // @access  Public
 export const getBlogTags = async (req, res) => {
   try {
-    const blogs = await Blog.find({ published: true });
+    const blogs = await Blog.find(
+      isAdminRequest(req) ? {} : { published: true }
+    );
     const allTags = blogs.reduce((tags, blog) => {
       return tags.concat(blog.tags);
     }, []);

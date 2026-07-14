@@ -1,16 +1,31 @@
 import Contact from '../models/Contact.js';
 import nodemailer from 'nodemailer';
 
-// Configure email transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const hasEmailConfig =
+  Boolean(process.env.EMAIL_HOST) &&
+  Boolean(process.env.EMAIL_PORT) &&
+  Boolean(process.env.EMAIL_USER) &&
+  Boolean(process.env.EMAIL_PASS);
+
+const transporter = hasEmailConfig
+  ? nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: Number(process.env.EMAIL_PORT),
+      secure: Number(process.env.EMAIL_PORT) === 465,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    })
+  : null;
+
+const escapeHtml = (value = '') =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 // @desc    Get all contact messages
 // @route   GET /api/contact
@@ -87,24 +102,24 @@ export const createContact = async (req, res) => {
       message,
     });
 
-    // Send email notification to admin
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM,
-        to: process.env.EMAIL_USER,
-        subject: `New Contact Message from ${name}`,
-        html: `
-          <h2>New Contact Message</h2>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Message:</strong></p>
-          <p>${message}</p>
-          <p><strong>Received at:</strong> ${new Date().toLocaleString()}</p>
-        `,
-      });
-    } catch (emailError) {
-      console.log('Email notification error:', emailError);
-      // Continue even if email fails
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+          to: process.env.EMAIL_USER,
+          subject: `New Contact Message from ${name}`,
+          html: `
+            <h2>New Contact Message</h2>
+            <p><strong>Name:</strong> ${escapeHtml(name)}</p>
+            <p><strong>Email:</strong> ${escapeHtml(email)}</p>
+            <p><strong>Message:</strong></p>
+            <p>${escapeHtml(message).replace(/\n/g, '<br />')}</p>
+            <p><strong>Received at:</strong> ${new Date().toLocaleString()}</p>
+          `,
+        });
+      } catch (emailError) {
+        console.warn(`Email notification failed: ${emailError.message}`);
+      }
     }
 
     res.status(201).json({

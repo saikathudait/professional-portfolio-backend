@@ -4,6 +4,22 @@ import Blog from '../models/Blog.js';
 import Skill from '../models/Skill.js';
 import Contact from '../models/Contact.js';
 
+const getVisitorKey = (req) => {
+  const providedVisitorId =
+    typeof req.body?.visitorId === 'string' ? req.body.visitorId.trim() : '';
+  if (providedVisitorId) {
+    return providedVisitorId.slice(0, 128);
+  }
+
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const ip = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : forwardedFor?.split(',')[0]?.trim() || req.ip || '';
+  const userAgent = req.get('user-agent') || '';
+
+  return [ip, userAgent].filter(Boolean).join('|').slice(0, 256);
+};
+
 // @desc    Get dashboard stats
 // @route   GET /api/analytics/dashboard
 // @access  Private/Admin
@@ -67,20 +83,29 @@ export const getDashboardStats = async (req, res) => {
 export const trackPageView = async (req, res) => {
   try {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
+    const visitorKey = getVisitorKey(req);
 
     let analytics = await Analytics.findOne({ date: today });
 
     if (!analytics) {
       analytics = await Analytics.create({
         date: today,
-        pageViews: 1,
-        uniqueVisitors: 1,
+        pageViews: 0,
+        uniqueVisitors: 0,
+        visitorIds: [],
       });
-    } else {
-      analytics.pageViews += 1;
-      await analytics.save();
     }
+
+    analytics.visitorIds = analytics.visitorIds || [];
+    analytics.pageViews += 1;
+
+    if (visitorKey && !analytics.visitorIds.includes(visitorKey)) {
+      analytics.visitorIds.push(visitorKey);
+      analytics.uniqueVisitors += 1;
+    }
+
+    await analytics.save();
 
     res.status(200).json({
       success: true,

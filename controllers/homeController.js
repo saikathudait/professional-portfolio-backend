@@ -5,6 +5,12 @@ import fs from 'fs';
 import path from 'path';
 import { resolveUploadsPath } from '../config/uploads.js';
 
+const removeFileIfExists = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+};
+
 const hasCloudinaryConfig =
   Boolean(process.env.CLOUDINARY_CLOUD_NAME) &&
   Boolean(process.env.CLOUDINARY_API_KEY) &&
@@ -154,15 +160,11 @@ const removeLocalResume = (resumeLink) => {
     const parsed = new URL(resumeLink);
     const filePath = parsed.pathname.replace(/^[\\/]+/, '');
     const absolutePath = resolveUploadsPath(filePath);
-    if (absolutePath && fs.existsSync(absolutePath)) {
-      fs.unlinkSync(absolutePath);
-    }
+    removeFileIfExists(absolutePath);
   } catch (error) {
     const filePath = resumeLink.replace(/^[\\/]+/, '');
     const absolutePath = resolveUploadsPath(filePath);
-    if (absolutePath && fs.existsSync(absolutePath)) {
-      fs.unlinkSync(absolutePath);
-    }
+    removeFileIfExists(absolutePath);
   }
 };
 
@@ -180,7 +182,7 @@ export const uploadResume = async (req, res) => {
 
     const ext = path.extname(req.file.originalname).toLowerCase();
     if (ext !== '.pdf') {
-      fs.unlinkSync(req.file.path);
+      removeFileIfExists(req.file.path);
       return res.status(400).json({
         success: false,
         message: 'Only PDF files are allowed',
@@ -199,7 +201,7 @@ export const uploadResume = async (req, res) => {
       });
       resumeUrl = result.secure_url;
       storedResumeValue = resumeUrl;
-      fs.unlinkSync(req.file.path);
+      removeFileIfExists(req.file.path);
     } else {
       const resumePath = `/uploads/${req.file.filename}`;
       resumeUrl = normalizeCvLink(req, resumePath);
@@ -222,9 +224,7 @@ export const uploadResume = async (req, res) => {
       data: home,
     });
   } catch (error) {
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    removeFileIfExists(req.file?.path);
     res.status(500).json({
       success: false,
       message: error.message,
