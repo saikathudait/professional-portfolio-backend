@@ -34,9 +34,12 @@ const ensureUploadsDir = () => {
 
 const resolveUploadsPath = (filePath) => {
   if (!filePath) return null;
-  const normalized = filePath.replace(/^[\\/]+/, '');
-  if (!/^uploads[\\/]/.test(normalized)) return null;
-  const relativePath = normalized.replace(/^uploads[\\/]+/, '');
+  const normalized = filePath
+    .replace(/^[\\/]+/, '')
+    .replace(/\\/g, '/')
+    .replace(/^api\/uploads\//, 'uploads/');
+  if (!/^uploads\//.test(normalized)) return null;
+  const relativePath = normalized.replace(/^uploads\/+/, '');
   return path.join(uploadsDir, relativePath);
 };
 

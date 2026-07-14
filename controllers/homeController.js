@@ -30,22 +30,27 @@ const getRequestBaseUrl = (req) => {
   return `${protocol}://${host}`;
 };
 
+const getNormalizedUploadPath = (value) => {
+  if (!value) return '';
+  const normalized = value.replace(/\\/g, '/');
+  const match = normalized.match(/^\/?(?:api\/)?uploads\/(.+)$/);
+  return match ? `/uploads/${match[1]}` : '';
+};
+
 const normalizeCvLink = (req, cvLink) => {
   if (!cvLink) return '';
 
   const baseUrl = getRequestBaseUrl(req);
+  const localUploadPath = getNormalizedUploadPath(cvLink);
 
-  if (cvLink.startsWith('/uploads/')) {
-    return `${baseUrl}${cvLink}`;
-  }
-
-  if (cvLink.startsWith('uploads/')) {
-    return `${baseUrl}/${cvLink}`;
+  if (localUploadPath) {
+    return `${baseUrl}${localUploadPath}`;
   }
 
   try {
     const parsedUrl = new URL(cvLink);
-    if (!parsedUrl.pathname.startsWith('/uploads/')) {
+    const uploadPath = getNormalizedUploadPath(parsedUrl.pathname);
+    if (!uploadPath) {
       return cvLink;
     }
 
@@ -55,13 +60,69 @@ const normalizeCvLink = (req, cvLink) => {
     );
 
     if (isLocalHost || parsedUrl.host === currentHost) {
-      return `${baseUrl}${parsedUrl.pathname}`;
+      return `${baseUrl}${uploadPath}`;
     }
   } catch (error) {
     return cvLink;
   }
 
   return cvLink;
+};
+
+const getLocalUploadPathFromLink = (req, resumeLink) => {
+  const directUploadPath = getNormalizedUploadPath(resumeLink);
+  if (directUploadPath) return directUploadPath;
+
+  try {
+    const parsedUrl = new URL(resumeLink);
+    const uploadPath = getNormalizedUploadPath(parsedUrl.pathname);
+    if (!uploadPath) return '';
+
+    const currentHost = new URL(getRequestBaseUrl(req)).host;
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(
+      parsedUrl.hostname
+    );
+
+    return isLocalHost || parsedUrl.host === currentHost ? uploadPath : '';
+  } catch {
+    return '';
+  }
+};
+
+const hasLocalResumeFile = (req, resumeLink) => {
+  const uploadPath = getLocalUploadPathFromLink(req, resumeLink);
+  if (!uploadPath) return true;
+
+  const absolutePath = resolveUploadsPath(uploadPath);
+  return Boolean(absolutePath && fs.existsSync(absolutePath));
+};
+
+const getPdfPageCount = (filePath) => {
+  try {
+    const pdf = fs.readFileSync(filePath, 'latin1');
+    const matches = pdf.match(/\/Type\s*\/Page\b/g);
+    return matches?.length || null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const getResumeMetadata = (file, storage) => ({
+  cvFileName: file.originalname || file.filename || 'resume.pdf',
+  cvFileSize: file.size || 0,
+  cvMimeType: file.mimetype || 'application/pdf',
+  cvUploadedAt: new Date(),
+  cvPageCount: getPdfPageCount(file.path),
+  cvStorage: storage,
+});
+
+const clearResumeMetadata = {
+  cvFileName: '',
+  cvFileSize: 0,
+  cvMimeType: '',
+  cvUploadedAt: null,
+  cvPageCount: null,
+  cvStorage: '',
 };
 
 // @desc    Get home data
@@ -82,7 +143,20 @@ export const getHome = async (req, res) => {
     }
 
     const responseData = home.toObject();
-    responseData.cvLink = normalizeCvLink(req, responseData.cvLink);
+    const resumeFileExists = hasLocalResumeFile(req, responseData.cvLink);
+    responseData.cvLink = resumeFileExists
+      ? normalizeCvLink(req, responseData.cvLink)
+      : '';
+    responseData.cvMissing = !resumeFileExists;
+    responseData.cv = {
+      link: responseData.cvLink,
+      fileName: responseData.cvFileName || '',
+      fileSize: responseData.cvFileSize || 0,
+      mimeType: responseData.cvMimeType || '',
+      uploadedAt: responseData.cvUploadedAt || null,
+      pageCount: responseData.cvPageCount || null,
+      storage: responseData.cvStorage || '',
+    };
 
     const includeOwnerImage = req.query.includeOwnerImage === 'true';
 
@@ -134,8 +208,22 @@ export const updateHome = async (req, res) => {
     let home = await Home.findOne();
 
     if (!home) {
-      home = await Home.create(updateData);
+      home = await Home.create(
+        req.body.cvLink !== undefined
+          ? { ...updateData, ...clearResumeMetadata, cvStorage: updateData.cvLink ? 'external' : '' }
+          : updateData
+      );
     } else {
+      if (req.body.cvLink !== undefined && req.body.cvLink !== home.cvLink) {
+        removeLocalResume(home.cvLink);
+        Object.assign(
+          updateData,
+          updateData.cvLink
+            ? { ...clearResumeMetadata, cvStorage: 'external' }
+            : clearResumeMetadata
+        );
+      }
+
       home = await Home.findByIdAndUpdate(home._id, updateData, {
         new: true,
         runValidators: true,
@@ -158,16 +246,17 @@ export const updateHome = async (req, res) => {
 const removeLocalResume = (resumeLink) => {
   if (!resumeLink) return;
 
+  let uploadPath = getNormalizedUploadPath(resumeLink);
+
   try {
     const parsed = new URL(resumeLink);
-    const filePath = parsed.pathname.replace(/^[\\/]+/, '');
-    const absolutePath = resolveUploadsPath(filePath);
-    removeFileIfExists(absolutePath);
+    uploadPath = getNormalizedUploadPath(parsed.pathname);
   } catch (error) {
-    const filePath = resumeLink.replace(/^[\\/]+/, '');
-    const absolutePath = resolveUploadsPath(filePath);
-    removeFileIfExists(absolutePath);
+    // Non-URL values are handled by the direct path normalization above.
   }
+
+  const absolutePath = resolveUploadsPath(uploadPath);
+  removeFileIfExists(absolutePath);
 };
 
 const storeResumeLocally = (req) => {
@@ -175,6 +264,7 @@ const storeResumeLocally = (req) => {
   return {
     resumeUrl: normalizeCvLink(req, resumePath),
     storedResumeValue: resumePath,
+    metadata: getResumeMetadata(req.file, 'local'),
   };
 };
 
@@ -201,6 +291,7 @@ export const uploadResume = async (req, res) => {
 
     let resumeUrl;
     let storedResumeValue;
+    let metadata;
 
     if (shouldUseCloudinaryForResume) {
       try {
@@ -212,25 +303,29 @@ export const uploadResume = async (req, res) => {
         });
         resumeUrl = result.secure_url;
         storedResumeValue = resumeUrl;
+        metadata = getResumeMetadata(req.file, 'cloudinary');
         removeFileIfExists(req.file.path);
       } catch (error) {
         const stored = storeResumeLocally(req);
         resumeUrl = stored.resumeUrl;
         storedResumeValue = stored.storedResumeValue;
+        metadata = stored.metadata;
         console.warn(`Cloudinary resume upload failed, saved locally: ${error.message}`);
       }
     } else {
       const stored = storeResumeLocally(req);
       resumeUrl = stored.resumeUrl;
       storedResumeValue = stored.storedResumeValue;
+      metadata = stored.metadata;
     }
 
     let home = await Home.findOne();
     if (!home) {
-      home = await Home.create({ cvLink: storedResumeValue });
+      home = await Home.create({ cvLink: storedResumeValue, ...metadata });
     } else {
       removeLocalResume(home.cvLink);
       home.cvLink = storedResumeValue;
+      Object.assign(home, metadata);
       await home.save();
     }
 

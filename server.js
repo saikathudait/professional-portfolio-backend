@@ -85,6 +85,10 @@ app.use('/uploads', (req, res, next) => {
 });
 app.use('/uploads', express.static(uploadsDir));
 
+app.use('/api/uploads', (req, res) => {
+  res.redirect(301, `/uploads${req.url}`);
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/about', aboutRoutes);

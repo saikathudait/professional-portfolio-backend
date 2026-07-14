@@ -30,6 +30,31 @@ const homeSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    cvFileName: {
+      type: String,
+      default: '',
+    },
+    cvFileSize: {
+      type: Number,
+      default: 0,
+    },
+    cvMimeType: {
+      type: String,
+      default: '',
+    },
+    cvUploadedAt: {
+      type: Date,
+      default: null,
+    },
+    cvPageCount: {
+      type: Number,
+      default: null,
+    },
+    cvStorage: {
+      type: String,
+      enum: ['local', 'cloudinary', 'external', ''],
+      default: '',
+    },
     ctaText: {
       type: String,
       default: 'View My Work',
