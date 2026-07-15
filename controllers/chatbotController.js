@@ -34,6 +34,7 @@ const PUBLIC_CONTACT_DETAILS = [
 let portfolioContextCache = {
   expiresAt: 0,
   value: '',
+  data: null,
 };
 
 const normalizeText = (value) => (typeof value === 'string' ? value : '');
@@ -75,12 +76,12 @@ const normalizeHistory = (history = []) => {
     .filter((item) => item.content);
 };
 
-const buildPortfolioContext = async () => {
+const buildPortfolioSnapshot = async () => {
   if (
-    portfolioContextCache.value &&
+    portfolioContextCache.data &&
     portfolioContextCache.expiresAt > Date.now()
   ) {
-    return portfolioContextCache.value;
+    return portfolioContextCache.data;
   }
 
   const [
@@ -138,10 +139,54 @@ const buildPortfolioContext = async () => {
       .lean(),
   ]);
 
-  const ownerName = process.env.PORTFOLIO_OWNER_NAME || 'Saikat Hudait';
-  const ownerEmail =
-    process.env.PORTFOLIO_OWNER_EMAIL || 'saikathudait2001@gmail.com';
-  const ownerLocation = process.env.PORTFOLIO_OWNER_LOCATION || 'Kolkata, India';
+  const snapshot = {
+    home,
+    about,
+    projects,
+    skills,
+    experiences,
+    education,
+    blogs,
+    books,
+    coverLetter,
+    ownerName: process.env.PORTFOLIO_OWNER_NAME || 'Saikat Hudait',
+    ownerEmail:
+      process.env.PORTFOLIO_OWNER_EMAIL || 'saikathudait2001@gmail.com',
+    ownerLocation: process.env.PORTFOLIO_OWNER_LOCATION || 'Kolkata, India',
+  };
+
+  portfolioContextCache = {
+    ...portfolioContextCache,
+    data: snapshot,
+    expiresAt: Date.now() + CONTEXT_CACHE_MS,
+  };
+
+  return snapshot;
+};
+
+const buildPortfolioContext = async () => {
+  if (
+    portfolioContextCache.value &&
+    portfolioContextCache.expiresAt > Date.now()
+  ) {
+    return portfolioContextCache.value;
+  }
+
+  const {
+    home,
+    about,
+    projects,
+    skills,
+    experiences,
+    education,
+    blogs,
+    books,
+    coverLetter,
+    ownerName,
+    ownerEmail,
+    ownerLocation,
+  } = await buildPortfolioSnapshot();
+
   const ownerRole =
     home?.heroSubtitle ||
     'Data Analyst | Data Visualization | AI/ML Specialist';
@@ -266,6 +311,7 @@ Cover letter:
 `.trim();
 
   portfolioContextCache = {
+    ...portfolioContextCache,
     value: context,
     expiresAt: Date.now() + CONTEXT_CACHE_MS,
   };
@@ -286,6 +332,78 @@ Portfolio context:
 ${portfolioContext}
 `.trim();
 
+const getLocalPortfolioAnswer = (message = '', snapshot = {}) => {
+  const cleanMessage = message.toLowerCase();
+  const { home, projects = [], skills = [], coverLetter } = snapshot;
+  const resumeName = home?.cvFileName || 'the uploaded resume PDF';
+  const resumeSize = formatFileSize(home?.cvFileSize);
+  const resumePages = home?.cvPageCount
+    ? `${home.cvPageCount} ${home.cvPageCount === 1 ? 'page' : 'pages'}`
+    : 'page count not recorded';
+
+  if (
+    /\b(contact|email|mail|phone|call|connect|reach|social|linkedin|github)\b/.test(
+      cleanMessage
+    )
+  ) {
+    return [
+      'You can contact Saikat Hudait through the public contact page: /contact.',
+      'Email: saikathudait2001@gmail.com',
+      'Phone: +91 7479309346',
+      'GitHub: https://github.com/saikathudait',
+      'LinkedIn: https://www.linkedin.com/in/saikat-hudait/',
+    ].join('\n');
+  }
+
+  if (/\b(resume|cv|download|pdf)\b/.test(cleanMessage)) {
+    return [
+      `Saikat's resume is available on /resume.`,
+      `Current file: ${resumeName}.`,
+      `File size: ${resumeSize}.`,
+      `Pages: ${resumePages}.`,
+      'Use the Resume page to view or download the latest PDF.',
+    ].join('\n');
+  }
+
+  if (/\b(cover letter|coverletter)\b/.test(cleanMessage)) {
+    if (!coverLetter?.content) {
+      return 'The cover letter is not published yet. Please check /resume later or contact Saikat directly.';
+    }
+
+    return `Saikat's cover letter is available on /resume under "${coverLetter.title || 'Cover Letter'}". Latest update: ${
+      coverLetter.updatedAt || 'not recorded'
+    }.`;
+  }
+
+  if (/\b(skill|skills|technology|technologies|tools|stack)\b/.test(cleanMessage)) {
+    const topSkills = skills
+      .slice(0, 10)
+      .map((skill) => skill.name)
+      .filter(Boolean);
+
+    if (!topSkills.length) {
+      return 'Saikat has not added public skill data yet. Please check /skills later.';
+    }
+
+    return `Saikat's public skills include ${topSkills.join(', ')}. You can explore the full skills page at /skills.`;
+  }
+
+  if (/\b(project|projects|work|case stud|portfolio)\b/.test(cleanMessage)) {
+    const topProjects = projects
+      .slice(0, 5)
+      .map((project) => project.title)
+      .filter(Boolean);
+
+    if (!topProjects.length) {
+      return 'Saikat has not added public project data yet. Please check /projects later.';
+    }
+
+    return `Some public projects are ${topProjects.join(', ')}. Visit /projects for details, tools, GitHub links, and live links where available.`;
+  }
+
+  return '';
+};
+
 // @desc    Send a public chatbot message to Groq
 // @route   POST /api/chatbot/message
 // @access  Public
@@ -298,6 +416,19 @@ export const sendChatMessage = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Please enter a message.',
+      });
+    }
+
+    const snapshot = await buildPortfolioSnapshot();
+    const localAnswer = getLocalPortfolioAnswer(cleanMessage, snapshot);
+
+    if (localAnswer) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          reply: localAnswer,
+          model: 'local-portfolio',
+        },
       });
     }
 
