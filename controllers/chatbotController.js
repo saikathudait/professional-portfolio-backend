@@ -63,6 +63,37 @@ const formatFileSize = (bytes = 0) => {
   return `${Math.max(bytes / 1024, 1).toFixed(0)} KB`;
 };
 
+const buildProfessionalIntro = (snapshot = {}) => {
+  const { home, about, projects = [], skills = [], experiences = [] } = snapshot;
+  const role =
+    home?.heroSubtitle ||
+    'Data Analyst, Data Visualization Specialist, and AI/ML Specialist';
+  const topSkills = skills
+    .slice(0, 8)
+    .map((skill) => skill.name)
+    .filter(Boolean);
+  const featuredProjects = projects
+    .filter((project) => project.featured)
+    .slice(0, 3)
+    .map((project) => project.title)
+    .filter(Boolean);
+  const recentExperience = experiences?.[0];
+  const experienceLine = recentExperience
+    ? ` He has practical experience as ${recentExperience.position} at ${recentExperience.company}, where he worked with ${recentExperience.technologies?.join(', ') || 'data and analytics tools'}.`
+    : '';
+  const projectLine = featuredProjects.length
+    ? ` His portfolio includes projects such as ${featuredProjects.join(', ')}, showing his ability to turn real-world problems into useful analytical and AI-driven solutions.`
+    : '';
+  const skillLine = topSkills.length
+    ? ` His core strengths include ${topSkills.join(', ')}.`
+    : '';
+  const missionLine = about?.missionStatement
+    ? ` ${truncate(about.missionStatement, 220)}`
+    : '';
+
+  return `Hello, thank you for asking. Saikat Hudait is a ${role} based in Kolkata, India, focused on transforming raw data into clear insights, dashboards, predictive models, and practical AI/ML solutions.${skillLine}${experienceLine}${projectLine}${missionLine} He combines technical skills with business-focused thinking, so he can help teams understand data, make better decisions, and build intelligent systems that create measurable impact. For hiring or collaboration, you can view his resume at /resume or contact him directly at /contact.`;
+};
+
 const normalizeHistory = (history = []) => {
   if (!Array.isArray(history)) return [];
 
@@ -340,6 +371,14 @@ const getLocalPortfolioAnswer = (message = '', snapshot = {}) => {
   const resumePages = home?.cvPageCount
     ? `${home.cvPageCount} ${home.cvPageCount === 1 ? 'page' : 'pages'}`
     : 'page count not recorded';
+
+  if (
+    /\b(tell me about|about yourself|about saikat|who is saikat|introduce|introduction|profile|yourself)\b/.test(
+      cleanMessage
+    )
+  ) {
+    return buildProfessionalIntro(snapshot);
+  }
 
   if (
     /\b(contact|email|mail|phone|call|connect|reach|social|linkedin|github)\b/.test(
