@@ -8,9 +8,12 @@ import Blog from '../models/Blog.js';
 import Book from '../models/Book.js';
 import CoverLetter from '../models/CoverLetter.js';
 import { getActiveGroqApiKey } from '../utils/apiKeyVault.js';
+import {
+  GROQ_CHAT_URL,
+  getGroqModel,
+  parseGroqError,
+} from '../utils/groqApi.js';
 
-const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 const MAX_USER_MESSAGE_LENGTH = 900;
 const MAX_HISTORY_ITEMS = 8;
 const CONTEXT_CACHE_MS = 60 * 1000;
@@ -325,7 +328,7 @@ export const sendChatMessage = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+        model: getGroqModel(),
         messages,
         temperature: 0.35,
         max_completion_tokens: 450,
@@ -335,15 +338,18 @@ export const sendChatMessage = async (req, res) => {
     const groqData = await groqResponse.json().catch(() => ({}));
 
     if (!groqResponse.ok) {
+      const parsedError = parseGroqError(groqResponse.status, groqData);
+
       console.error('Groq chatbot request failed:', {
         status: groqResponse.status,
-        message: groqData?.error?.message || groqResponse.statusText,
+        code: parsedError.code,
+        message: parsedError.logMessage || groqResponse.statusText,
       });
 
       return res.status(502).json({
         success: false,
-        message:
-          'The AI assistant is unavailable right now. Please try again soon.',
+        message: parsedError.publicMessage,
+        code: parsedError.code,
       });
     }
 

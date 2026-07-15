@@ -2,6 +2,7 @@ import {
   getGroqApiKeyStatus,
   replaceGroqApiKey,
 } from '../utils/apiKeyVault.js';
+import { validateGroqApiKey } from '../utils/groqApi.js';
 
 // @desc    Get Groq API key status
 // @route   GET /api/api-keys/groq
@@ -15,9 +16,10 @@ export const getGroqKeyStatus = async (req, res) => {
       data: status,
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message,
+      code: error.code || 'API_KEY_UPDATE_FAILED',
     });
   }
 };
@@ -44,6 +46,7 @@ export const updateGroqKey = async (req, res) => {
       });
     }
 
+    await validateGroqApiKey(cleanKey);
     const status = await replaceGroqApiKey(cleanKey, req.user?._id || null);
 
     res.status(200).json({
