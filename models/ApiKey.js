@@ -10,19 +10,24 @@ const apiKeySchema = new mongoose.Schema(
     },
     encryptedValue: {
       type: String,
-      required: true,
+      default: '',
     },
     iv: {
       type: String,
-      required: true,
+      default: '',
     },
     authTag: {
       type: String,
-      required: true,
+      default: '',
     },
     maskedValue: {
       type: String,
-      required: true,
+      default: '',
+    },
+    modelName: {
+      type: String,
+      trim: true,
+      default: '',
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

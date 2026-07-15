@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import ApiKey from '../models/ApiKey.js';
+import { DEFAULT_GROQ_MODEL } from './groqApi.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const GROQ_PROVIDER = 'groq';
@@ -20,6 +21,11 @@ const maskApiKey = (apiKey = '') => {
   if (cleanKey.length <= 8) return '********';
   return `${cleanKey.slice(0, 4)}...${cleanKey.slice(-4)}`;
 };
+
+const hasEncryptedKey = (record) =>
+  Boolean(record?.encryptedValue && record?.iv && record?.authTag);
+
+const getEnvironmentModel = () => process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
 
 export const encryptSecret = (plainValue) => {
   const iv = crypto.randomBytes(12);
@@ -53,21 +59,28 @@ export const decryptSecret = ({ encryptedValue, iv, authTag }) => {
 
 export const getGroqApiKeyStatus = async () => {
   const storedKey = await ApiKey.findOne({ provider: GROQ_PROVIDER }).lean();
+  const hasDatabaseKey = hasEncryptedKey(storedKey);
+  const hasEnvironmentKey = Boolean(process.env.GROQ_API_KEY);
+  const modelName = storedKey?.modelName || getEnvironmentModel();
 
-  if (storedKey) {
+  if (hasDatabaseKey) {
     return {
       configured: true,
       source: 'database',
       maskedValue: storedKey.maskedValue,
+      modelName,
+      modelSource: storedKey.modelName ? 'database' : process.env.GROQ_MODEL ? 'environment' : 'default',
       updatedAt: storedKey.updatedAt,
     };
   }
 
-  if (process.env.GROQ_API_KEY) {
+  if (hasEnvironmentKey) {
     return {
       configured: true,
       source: 'environment',
       maskedValue: maskApiKey(process.env.GROQ_API_KEY),
+      modelName,
+      modelSource: storedKey?.modelName ? 'database' : process.env.GROQ_MODEL ? 'environment' : 'default',
       updatedAt: null,
     };
   }
@@ -76,32 +89,57 @@ export const getGroqApiKeyStatus = async () => {
     configured: false,
     source: '',
     maskedValue: '',
-    updatedAt: null,
+    modelName,
+    modelSource: storedKey?.modelName ? 'database' : process.env.GROQ_MODEL ? 'environment' : 'default',
+    updatedAt: storedKey?.updatedAt || null,
   };
 };
 
 export const getActiveGroqApiKey = async () => {
   const storedKey = await ApiKey.findOne({ provider: GROQ_PROVIDER }).lean();
 
-  if (storedKey) {
+  if (hasEncryptedKey(storedKey)) {
     return decryptSecret(storedKey);
   }
 
   return process.env.GROQ_API_KEY || '';
 };
 
-export const replaceGroqApiKey = async (apiKey, updatedBy = null) => {
-  const cleanKey = apiKey.trim();
-  const encryptedPayload = encryptSecret(cleanKey);
+export const getConfiguredGroqModel = async () => {
+  const storedKey = await ApiKey.findOne({ provider: GROQ_PROVIDER })
+    .select('modelName')
+    .lean();
+
+  return storedKey?.modelName || getEnvironmentModel();
+};
+
+export const replaceGroqConfig = async ({
+  apiKey,
+  modelName,
+  updatedBy = null,
+}) => {
+  const cleanKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const cleanModelName =
+    typeof modelName === 'string' ? modelName.trim() : undefined;
+  const updatePayload = {
+    provider: GROQ_PROVIDER,
+    updatedBy,
+  };
+
+  if (cleanKey) {
+    Object.assign(updatePayload, {
+      ...encryptSecret(cleanKey),
+      maskedValue: maskApiKey(cleanKey),
+    });
+  }
+
+  if (cleanModelName !== undefined) {
+    updatePayload.modelName = cleanModelName;
+  }
 
   const apiKeyRecord = await ApiKey.findOneAndUpdate(
     { provider: GROQ_PROVIDER },
-    {
-      provider: GROQ_PROVIDER,
-      ...encryptedPayload,
-      maskedValue: maskApiKey(cleanKey),
-      updatedBy,
-    },
+    updatePayload,
     {
       new: true,
       upsert: true,
@@ -115,9 +153,19 @@ export const replaceGroqApiKey = async (apiKey, updatedBy = null) => {
   });
 
   return {
-    configured: true,
-    source: 'database',
-    maskedValue: apiKeyRecord.maskedValue,
+    configured: hasEncryptedKey(apiKeyRecord) || Boolean(process.env.GROQ_API_KEY),
+    source: hasEncryptedKey(apiKeyRecord)
+      ? 'database'
+      : process.env.GROQ_API_KEY
+        ? 'environment'
+        : '',
+    maskedValue: hasEncryptedKey(apiKeyRecord)
+      ? apiKeyRecord.maskedValue
+      : process.env.GROQ_API_KEY
+        ? maskApiKey(process.env.GROQ_API_KEY)
+        : '',
+    modelName: apiKeyRecord.modelName || getEnvironmentModel(),
+    modelSource: apiKeyRecord.modelName ? 'database' : process.env.GROQ_MODEL ? 'environment' : 'default',
     updatedAt: apiKeyRecord.updatedAt,
   };
 };

@@ -1,8 +1,9 @@
 import {
   getGroqApiKeyStatus,
-  replaceGroqApiKey,
+  getActiveGroqApiKey,
+  replaceGroqConfig,
 } from '../utils/apiKeyVault.js';
-import { validateGroqApiKey } from '../utils/groqApi.js';
+import { listAvailableGroqModels, validateGroqApiKey } from '../utils/groqApi.js';
 
 // @desc    Get Groq API key status
 // @route   GET /api/api-keys/groq
@@ -30,12 +31,15 @@ export const getGroqKeyStatus = async (req, res) => {
 export const updateGroqKey = async (req, res) => {
   try {
     const apiKey = typeof req.body.apiKey === 'string' ? req.body.apiKey : '';
+    const modelName =
+      typeof req.body.modelName === 'string' ? req.body.modelName : '';
     const cleanKey = apiKey.trim();
+    const cleanModelName = modelName.trim();
 
-    if (!cleanKey) {
+    if (!cleanKey && !cleanModelName) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a Groq API key.',
+        message: 'Please provide a Groq API key or model name.',
       });
     }
 
@@ -46,18 +50,41 @@ export const updateGroqKey = async (req, res) => {
       });
     }
 
-    await validateGroqApiKey(cleanKey);
-    const status = await replaceGroqApiKey(cleanKey, req.user?._id || null);
+    if (cleanKey) {
+      await validateGroqApiKey(cleanKey);
+    }
+
+    if (cleanModelName) {
+      const activeKey = cleanKey || (await getActiveGroqApiKey());
+      if (activeKey) {
+        const availableModels = await listAvailableGroqModels(activeKey);
+        if (!availableModels.includes(cleanModelName)) {
+          return res.status(400).json({
+            success: false,
+            code: 'GROQ_MODEL_UNAVAILABLE',
+            message:
+              'This model is not available for the saved Groq account. Try openai/gpt-oss-20b or choose a model listed in your Groq console.',
+          });
+        }
+      }
+    }
+
+    const status = await replaceGroqConfig({
+      apiKey: cleanKey,
+      modelName: cleanModelName,
+      updatedBy: req.user?._id || null,
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Groq API key updated successfully.',
+      message: 'Groq chatbot settings updated successfully.',
       data: status,
     });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: error.message,
+      code: error.code || 'API_KEY_UPDATE_FAILED',
     });
   }
 };

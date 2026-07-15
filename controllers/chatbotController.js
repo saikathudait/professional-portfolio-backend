@@ -7,11 +7,14 @@ import Education from '../models/Education.js';
 import Blog from '../models/Blog.js';
 import Book from '../models/Book.js';
 import CoverLetter from '../models/CoverLetter.js';
-import { getActiveGroqApiKey } from '../utils/apiKeyVault.js';
+import {
+  getActiveGroqApiKey,
+  getConfiguredGroqModel,
+} from '../utils/apiKeyVault.js';
 import {
   GROQ_CHAT_URL,
-  getGroqModel,
   parseGroqError,
+  resolveGroqChatModel,
 } from '../utils/groqApi.js';
 
 const MAX_USER_MESSAGE_LENGTH = 900;
@@ -309,6 +312,8 @@ export const sendChatMessage = async (req, res) => {
     }
 
     const portfolioContext = await buildPortfolioContext();
+    const configuredModel = await getConfiguredGroqModel();
+    const model = await resolveGroqChatModel(groqApiKey, configuredModel);
     const messages = [
       {
         role: 'system',
@@ -328,7 +333,7 @@ export const sendChatMessage = async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: getGroqModel(),
+        model,
         messages,
         temperature: 0.35,
         max_completion_tokens: 450,
