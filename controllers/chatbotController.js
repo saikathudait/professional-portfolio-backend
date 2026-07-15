@@ -6,6 +6,7 @@ import Experience from '../models/Experience.js';
 import Education from '../models/Education.js';
 import Blog from '../models/Blog.js';
 import Book from '../models/Book.js';
+import CoverLetter from '../models/CoverLetter.js';
 import { getActiveGroqApiKey } from '../utils/apiKeyVault.js';
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -13,6 +14,17 @@ const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 const MAX_USER_MESSAGE_LENGTH = 900;
 const MAX_HISTORY_ITEMS = 8;
 const CONTEXT_CACHE_MS = 60 * 1000;
+const PUBLIC_SOCIAL_LINKS = [
+  'GitHub: https://github.com/saikathudait',
+  'LinkedIn: https://www.linkedin.com/in/saikat-hudait/',
+  'Email: mailto:saikathudait2001@gmail.com',
+];
+const PUBLIC_CONTACT_DETAILS = [
+  'Email: saikathudait2001@gmail.com',
+  'Phone: +91 7479309346',
+  'Location: Kolkata, India',
+  'Contact page: /contact',
+];
 let portfolioContextCache = {
   expiresAt: 0,
   value: '',
@@ -36,6 +48,13 @@ const listItems = (items = [], formatter) =>
   items.length
     ? items.map((item, index) => `${index + 1}. ${formatter(item)}`).join('\n')
     : 'No public data added yet.';
+
+const formatFileSize = (bytes = 0) => {
+  if (!bytes) return 'Not recorded';
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(2)} MB`;
+  return `${Math.max(bytes / 1024, 1).toFixed(0)} KB`;
+};
 
 const normalizeHistory = (history = []) => {
   if (!Array.isArray(history)) return [];
@@ -67,19 +86,50 @@ const buildPortfolioContext = async () => {
     education,
     blogs,
     books,
+    coverLetter,
   ] = await Promise.all([
-    Home.findOne().lean(),
-    About.findOne().lean(),
-    Project.find().sort({ featured: -1, order: 1, createdAt: -1 }).limit(8).lean(),
-    Skill.find().sort({ category: 1, order: 1, level: -1 }).limit(20).lean(),
-    Experience.find().sort({ order: 1, createdAt: -1 }).limit(6).lean(),
-    Education.find().sort({ order: 1, createdAt: -1 }).limit(6).lean(),
+    Home.findOne()
+      .select(
+        'heroTitle heroSubtitle heroDescription heroImage heroVideo cvLink cvFileName cvFileSize cvMimeType cvUploadedAt cvPageCount cvStorage ctaText ctaLink updatedAt'
+      )
+      .lean(),
+    About.findOne()
+      .select('bio missionStatement profileImage certifications volunteering updatedAt')
+      .lean(),
+    Project.find()
+      .sort({ featured: -1, order: 1, createdAt: -1 })
+      .select(
+        'title description longDescription images technologies githubLink liveLink featured category order updatedAt'
+      )
+      .lean(),
+    Skill.find()
+      .sort({ category: 1, order: 1, level: -1 })
+      .select('name level category icon order updatedAt')
+      .lean(),
+    Experience.find()
+      .sort({ order: 1, createdAt: -1 })
+      .select(
+        'company position location startDate endDate responsibilities technologies companyLogo order updatedAt'
+      )
+      .lean(),
+    Education.find()
+      .sort({ order: 1, createdAt: -1 })
+      .select(
+        'degree institution location startDate endDate grade description order updatedAt'
+      )
+      .lean(),
     Blog.find({ published: true })
       .sort({ createdAt: -1 })
-      .limit(5)
-      .select('title excerpt category tags slug')
+      .select('title slug excerpt content featuredImage category tags views updatedAt')
       .lean(),
-    Book.find().sort({ order: 1, createdAt: -1 }).limit(5).lean(),
+    Book.find()
+      .sort({ order: 1, createdAt: -1 })
+      .select('title author description platform link coverImage order updatedAt')
+      .lean(),
+    CoverLetter.findOne()
+      .sort({ updatedAt: -1 })
+      .select('title content updatedAt')
+      .lean(),
   ]);
 
   const ownerName = process.env.PORTFOLIO_OWNER_NAME || 'Saikat Hudait';
@@ -99,28 +149,48 @@ Portfolio owner:
 - Resume page: /resume
 - Projects page: /projects
 - Contact page: /contact
+- Public pages available to answer from: /, /about, /education, /experience, /skills, /projects, /books, /blog, /contact, /resume
+
+Allowed data policy:
+- Use only public portfolio content listed in this context.
+- Do not access or reveal admin users, passwords, JWTs, API keys, encrypted keys, private contact submissions/messages, analytics visitor IDs, raw resume binary data, database internals, or any backend secrets.
+- If a visitor asks for private/sensitive data, refuse briefly and offer public contact or portfolio information instead.
 
 Home:
 - Title: ${home?.heroTitle || ownerName}
+- Subtitle: ${home?.heroSubtitle || ownerRole}
 - Summary: ${truncate(home?.heroDescription || about?.bio, 650)}
+- Hero image: ${home?.heroImage || 'Not listed'}
+- Hero video: ${home?.heroVideo || 'Not listed'}
 - CTA: ${home?.ctaText || 'View My Work'} ${home?.ctaLink || '/projects'}
 
 About:
 - Bio: ${truncate(about?.bio, 800)}
 - Mission: ${truncate(about?.missionStatement, 500)}
+- Profile image: ${about?.profileImage || 'Not listed'}
 - Certifications: ${listItems(about?.certifications || [], (cert) =>
     `${cert.name || 'Certification'}${cert.issuer ? ` by ${cert.issuer}` : ''}${
       cert.date ? ` (${cert.date})` : ''
-    }`
+    }${cert.credentialUrl ? `. Credential: ${cert.credentialUrl}` : ''}`
+  )}
+- Volunteering: ${listItems(about?.volunteering || [], (item) =>
+    `${item.role || 'Role'} at ${item.organization || 'Organization'}${
+      item.startDate || item.endDate ? ` (${item.startDate || ''} - ${item.endDate || 'Present'})` : ''
+    }. ${truncate(item.description, 220)}`
   )}
 
 Projects:
 ${listItems(projects, (project) =>
-  `${project.title} - ${truncate(project.description, 220)} Tools: ${
+  `${project.title} - ${truncate(project.description, 260)} Long details: ${truncate(
+    project.longDescription,
+    500
+  )} Tools: ${
     project.technologies?.join(', ') || 'Not listed'
   }. Category: ${project.category || 'Not listed'}${
     project.githubLink ? `. GitHub: ${project.githubLink}` : ''
-  }${project.liveLink ? `. Live: ${project.liveLink}` : ''}`
+  }${project.liveLink ? `. Live: ${project.liveLink}` : ''}${
+    project.images?.length ? `. Images: ${project.images.join(', ')}` : ''
+  }`
 )}
 
 Skills:
@@ -136,29 +206,57 @@ ${listItems(experiences, (experience) =>
     experience.endDate || 'Present'
   }). Responsibilities: ${truncate(
     (experience.responsibilities || []).join('; '),
-    280
-  )}`
+    700
+  )}. Technologies: ${experience.technologies?.join(', ') || 'Not listed'}${
+    experience.companyLogo ? `. Company logo: ${experience.companyLogo}` : ''
+  }`
 )}
 
 Education:
 ${listItems(education, (item) =>
   `${item.degree} at ${item.institution}, ${item.location || 'location not listed'} (${item.startDate} - ${
     item.endDate || 'Present'
-  })${item.grade ? `. Grade: ${item.grade}` : ''}`
+  })${item.grade ? `. Grade: ${item.grade}` : ''}. ${truncate(item.description, 500)}`
 )}
 
-Recent blog posts:
+Blog:
 ${listItems(blogs, (blog) =>
-  `${blog.title} (${blog.category || 'General'}) - ${truncate(blog.excerpt, 200)}`
+  `${blog.title} (${blog.category || 'General'}) - Excerpt: ${truncate(
+    blog.excerpt,
+    260
+  )}. Content: ${truncate(blog.content, 1400)} Tags: ${
+    blog.tags?.join(', ') || 'Not listed'
+  }. Public path: /blog/${blog.slug}`
 )}
 
 Books:
 ${listItems(books, (book) =>
   `${book.title}${book.author ? ` by ${book.author}` : ''} - ${truncate(
     book.description,
-    180
-  )}`
+    420
+  )}. Platform: ${book.platform || 'Not listed'}${
+    book.link ? `. Link: ${book.link}` : ''
+  }${book.coverImage ? `. Cover image: ${book.coverImage}` : ''}`
 )}
+
+Contact and social:
+${PUBLIC_CONTACT_DETAILS.join('\n')}
+${PUBLIC_SOCIAL_LINKS.join('\n')}
+
+Resume:
+- Public resume page: /resume
+- Resume file name: ${home?.cvFileName || 'Not uploaded'}
+- Resume file size: ${formatFileSize(home?.cvFileSize)}
+- Resume MIME type: ${home?.cvMimeType || 'Not recorded'}
+- Resume uploaded at: ${home?.cvUploadedAt || 'Not recorded'}
+- Resume page count: ${home?.cvPageCount || 'Not recorded'}
+- Resume storage: ${home?.cvStorage || 'Not recorded'}
+- Public resume route: ${home?.cvLink || '/api/home/cv/file'}
+
+Cover letter:
+- Title: ${coverLetter?.title || 'Not published yet'}
+- Last updated: ${coverLetter?.updatedAt || 'Not recorded'}
+- Content: ${truncate(coverLetter?.content, 4000)}
 `.trim();
 
   portfolioContextCache = {
@@ -173,6 +271,7 @@ const buildSystemPrompt = (portfolioContext) => `
 You are the AI assistant for Saikat Hudait's professional portfolio website.
 Use only the portfolio context below and normal conversational guidance.
 Do not invent achievements, links, employers, degrees, certifications, or metrics.
+Never reveal or request sensitive data such as API keys, passwords, tokens, admin data, private contact messages, analytics visitor IDs, database records, or raw stored files.
 If the answer is not available in the portfolio context, say that it is not listed on the website yet and suggest using the contact page or email.
 Keep answers clear, friendly, professional, and concise. Prefer 2-5 short sentences.
 When relevant, guide visitors to pages such as /projects, /resume, /skills, /blog, or /contact.
