@@ -21,6 +21,8 @@ import contactRoutes from './routes/contactRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import coverLetterRoutes from './routes/coverLetterRoutes.js';
+import chatbotRoutes from './routes/chatbotRoutes.js';
+import apiKeyRoutes from './routes/apiKeyRoutes.js';
 
 dotenv.config();
 
@@ -103,6 +105,8 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/cover-letter', coverLetterRoutes);
+app.use('/api/chatbot', chatbotRoutes);
+app.use('/api/api-keys', apiKeyRoutes);
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -131,6 +135,8 @@ app.get('/', (req, res) => {
       upload: '/api/upload',
       analytics: '/api/analytics',
       coverLetter: '/api/cover-letter',
+      chatbot: '/api/chatbot',
+      apiKeys: '/api/api-keys',
     },
   });
 });
